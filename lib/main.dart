@@ -44,16 +44,16 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
       TextEditingController(text: '9100');
   final TextEditingController _textController = TextEditingController();
 
-  String _connectionType = 'wifi'; // 'wifi', 'usb', 'bluetooth'
-  String _cutMode = 'full'; // 'full', 'partial', 'none'
+  String _connectionType = 'wifi';
+  String _cutMode = 'full';
   int _feedLines = 4;
   bool _autoPrintOnReceive = true;
   bool _isPrinting = false;
 
-  List> _usbDevices = [];
+  List _usbDevices = [];
   String? _selectedUsbDevice;
 
-  List> _btDevices = [];
+  List _btDevices = [];
   String? _selectedBtAddress;
 
   String _statusMessage = 'Ready to print';
@@ -81,8 +81,8 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
     if (_connectionType == 'usb') await _refreshUsbDevices();
     if (_connectionType == 'bluetooth') await _refreshBtDevices();
 
-    final initialText = await _channel.invokeMethod<String>('getInitialText');
-    if (initialText != null && initialText.isNotEmpty) {
+    final initialText = await _channel.invokeMethod('getInitialText');
+    if (initialText is String && initialText.isNotEmpty) {
       _handleIncomingText(initialText);
     }
   }
@@ -106,8 +106,8 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
   void _setupIncomingListener() {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onReceiveText') {
-        final String? text = call.arguments as String?;
-        if (text != null && text.isNotEmpty) {
+        final text = call.arguments;
+        if (text is String && text.isNotEmpty) {
           _handleIncomingText(text);
         }
       }
@@ -126,14 +126,17 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
 
   Future<void> _refreshUsbDevices() async {
     try {
-      final List<dynamic> res = await _channel.invokeMethod('getUsbDevices');
-      setState(() {
-        _usbDevices = res.map((e) => Map<String, String>.from(e)).toList();
-        if (_usbDevices.isNotEmpty &&
-            !_usbDevices.any((d) => d['deviceName'] == _selectedUsbDevice)) {
-          _selectedUsbDevice = _usbDevices.first['deviceName'];
-        }
-      });
+      final res = await _channel.invokeMethod('getUsbDevices');
+      if (res is List) {
+        setState(() {
+          _usbDevices = res;
+          if (_usbDevices.isNotEmpty &&
+              !_usbDevices.any(
+                  (d) => d['deviceName'].toString() == _selectedUsbDevice)) {
+            _selectedUsbDevice = _usbDevices.first['deviceName'].toString();
+          }
+        });
+      }
     } catch (e) {
       _showSnack('USB scan error: $e');
     }
@@ -141,45 +144,47 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
 
   Future<void> _refreshBtDevices() async {
     try {
-      final List<dynamic> res =
-          await _channel.invokeMethod('getBluetoothDevices');
-      setState(() {
-        _btDevices = res.map((e) => Map<String, String>.from(e)).toList();
-        if (_btDevices.isNotEmpty &&
-            !_btDevices.any((d) => d['address'] == _selectedBtAddress)) {
-          _selectedBtAddress = _btDevices.first['address'];
-        }
-      });
+      final res = await _channel.invokeMethod('getBluetoothDevices');
+      if (res is List) {
+        setState(() {
+          _btDevices = res;
+          if (_btDevices.isNotEmpty &&
+              !_btDevices
+                  .any((d) => d['address'].toString() == _selectedBtAddress)) {
+            _selectedBtAddress = _btDevices.first['address'].toString();
+          }
+        });
+      }
     } catch (e) {
       _showSnack('Bluetooth scan error: $e');
     }
   }
 
   Uint8List _buildEscPosPayload(String text) {
-    final List<int> bytes = [];
+    final bytes = BytesBuilder();
 
     // 1. Initialize Printer (ESC @)
-    bytes.addAll([0x1B, 0x40]);
+    bytes.add([0x1B, 0x40]);
 
     // 2. Receipt Text
-    bytes.addAll(utf8.encode(text));
+    bytes.add(utf8.encode(text));
     if (!text.endsWith('\n')) {
-      bytes.add(0x0A);
+      bytes.addByte(0x0A);
     }
 
-    // 3. Feed empty lines before cut so cutter blade doesn't cut text
+    // 3. Feed empty lines before cut
     for (int i = 0; i < _feedLines; i++) {
-      bytes.add(0x0A);
+      bytes.addByte(0x0A);
     }
 
     // 4. Auto Page Cut Command (GS V)
     if (_cutMode == 'full') {
-      bytes.addAll([0x1D, 0x56, 0x00]); // Full Cut
+      bytes.add([0x1D, 0x56, 0x00]);
     } else if (_cutMode == 'partial') {
-      bytes.addAll([0x1D, 0x56, 0x01]); // Partial Cut
+      bytes.add([0x1D, 0x56, 0x01]);
     }
 
-    return Uint8List.fromList(bytes);
+    return bytes.toBytes();
   }
 
   Future<void> _printText(String rawText) async {
@@ -263,6 +268,38 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final usbItems = [
+      for (final d in _usbDevices)
+        DropdownMenuItem(
+          value: d['deviceName'].toString(),
+          child: Text((d['productName'] ?? 'USB Device').toString()),
+        ),
+    ];
+
+    final validUsbValue = _usbDevices.any(
+            (d) => d['deviceName'].toString() == _selectedUsbDevice)
+        ? _selectedUsbDevice
+        : null;
+
+    final btItems = [
+      for (final d in _btDevices)
+        DropdownMenuItem(
+          value: d['address'].toString(),
+          child: Text((d['name'] ?? 'BT Printer').toString()),
+        ),
+    ];
+
+    final validBtValue = _btDevices
+            .any((d) => d['address'].toString() == _selectedBtAddress)
+        ? _selectedBtAddress
+        : null;
+
+    const cutItems = [
+      DropdownMenuItem(value: 'full', child: Text('Full Cut (GS V 0)')),
+      DropdownMenuItem(value: 'partial', child: Text('Partial Cut (GS V 1)')),
+      DropdownMenuItem(value: 'none', child: Text('Off (Do Not Cut)')),
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Thermal Print Bridge'),
@@ -279,7 +316,6 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Connection Type Selector
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -292,7 +328,7 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
                           TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
                     const SizedBox(height: 10),
-                    SegmentedButton<String>(
+                    SegmentedButton(
                       segments: const [
                         ButtonSegment(
                             value: 'wifi',
@@ -353,21 +389,16 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedUsbDevice,
+                            child: DropdownButtonFormField(
+                              value: validUsbValue,
                               decoration: const InputDecoration(
                                 labelText: 'Select USB Printer',
                                 border: OutlineInputBorder(),
                               ),
-                              items: _usbDevices
-                                  .map((d) => DropdownMenuItem(
-                                        value: d['deviceName'],
-                                        child: Text(
-                                            d['productName'] ?? 'USB Device'),
-                                      ))
-                                  .toList(),
+                              items: usbItems,
                               onChanged: (val) {
-                                setState(() => _selectedUsbDevice = val);
+                                setState(
+                                    () => _selectedUsbDevice = val as String?);
                                 _saveSettings();
                               },
                             ),
@@ -383,20 +414,16 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
                       Row(
                         children: [
                           Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedBtAddress,
+                            child: DropdownButtonFormField(
+                              value: validBtValue,
                               decoration: const InputDecoration(
                                 labelText: 'Select Paired Printer',
                                 border: OutlineInputBorder(),
                               ),
-                              items: _btDevices
-                                  .map((d) => DropdownMenuItem(
-                                        value: d['address'],
-                                        child: Text(d['name'] ?? 'BT Printer'),
-                                      ))
-                                  .toList(),
+                              items: btItems,
                               onChanged: (val) {
-                                setState(() => _selectedBtAddress = val);
+                                setState(
+                                    () => _selectedBtAddress = val as String?);
                                 _saveSettings();
                               },
                             ),
@@ -413,10 +440,7 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // Cutter & Auto-Print Settings
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
@@ -429,24 +453,16 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
                           TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                     ),
                     const SizedBox(height: 10),
-                    DropdownButtonFormField<String>(
+                    DropdownButtonFormField(
                       value: _cutMode,
                       decoration: const InputDecoration(
                         labelText: 'Paper Cut Mode',
                         border: OutlineInputBorder(),
                       ),
-                      items: const [
-                        DropdownMenuItem(
-                            value: 'full', child: Text('Full Cut (GS V 0)')),
-                        DropdownMenuItem(
-                            value: 'partial',
-                            child: Text('Partial Cut (GS V 1)')),
-                        DropdownMenuItem(
-                            value: 'none', child: Text('Off (Do Not Cut)')),
-                      ],
+                      items: cutItems,
                       onChanged: (val) {
                         if (val != null) {
-                          setState(() => _cutMode = val);
+                          setState(() => _cutMode = val.toString());
                           _saveSettings();
                         }
                       },
@@ -484,10 +500,7 @@ class _PrinterHomeScreenState extends State<PrinterHomeScreen> {
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // Text Input & Print Button
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(12),
