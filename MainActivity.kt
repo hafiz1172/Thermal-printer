@@ -77,8 +77,8 @@ class MainActivity : FlutterActivity() {
                 }
 
                 "printUsb" -> {
-                    val deviceName = call.argument<String>("deviceName")
-                    val bytes = call.argument<ByteArray>("bytes")
+                    val deviceName = call.argument("deviceName") as? String
+                    val bytes = call.argument("bytes") as? ByteArray
                     if (deviceName == null || bytes == null) {
                         result.error("INVALID_ARGS", "USB device ya data missing hai", null)
                         return@setMethodCallHandler
@@ -96,7 +96,7 @@ class MainActivity : FlutterActivity() {
                             arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN),
                             101
                         )
-                        result.success(emptyList>())
+                        result.success(ArrayList<Any>())
                         return@setMethodCallHandler
                     }
 
@@ -107,13 +107,13 @@ class MainActivity : FlutterActivity() {
                             "name" to (device.name ?: "Bluetooth Printer"),
                             "address" to device.address
                         )
-                    } ?: emptyList()
+                    } ?: ArrayList<Any>()
                     result.success(devices)
                 }
 
                 "printBluetooth" -> {
-                    val address = call.argument<String>("address")
-                    val bytes = call.argument<ByteArray>("bytes")
+                    val address = call.argument("address") as? String
+                    val bytes = call.argument("bytes") as? ByteArray
                     if (address == null || bytes == null) {
                         result.error("INVALID_ARGS", "Bluetooth address ya data missing hai", null)
                         return@setMethodCallHandler
